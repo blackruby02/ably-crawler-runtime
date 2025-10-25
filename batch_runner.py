@@ -38,13 +38,12 @@ def save_progress(d: Dict):
         json.dump(d, f, ensure_ascii=False)
     os.replace(tmp, PROGRESS_PATH)
 
-def ensure_csv(outfile: str):
-    new = not os.path.exists(outfile)
-    f = open(outfile, "a", newline="", encoding="utf-8")
-    w = csv.writer(f)
-    if new:
-        w.writerow(["market_id","상호","대표자","사업자등록번호","통신판매업신고번호","이메일","전화번호","주소","source_url","scraped_at"])
-    return f, w
+def ensure_csv_header(outfile: str):
+    """CSV 파일이 없으면 헤더를 생성"""
+    if not os.path.exists(outfile):
+        with open(outfile, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerow(["market_id","상호","대표자","사업자등록번호","통신판매업신고번호","이메일","전화번호","주소","source_url","scraped_at"])
 
 def main():
     ap = argparse.ArgumentParser(description="Batch runner using user's successful crawler logic.")
@@ -70,8 +69,8 @@ def main():
         print(f"[info] nothing to do (start_id {start_id} > end {args.end})")
         sys.exit(0)
 
-    # 출력 준비
-    f, w = ensure_csv(args.out)
+    # 출력 준비 - CSV 헤더 생성
+    ensure_csv_header(args.out)
 
     # 통계/타이밍
     ok = cf_hits = skip = 0
@@ -100,15 +99,20 @@ def main():
                 continue
 
         data = parse_seller_info(html)
-        # CSV 저장
-        w.writerow([
-            current,
-            data.get("상호"), data.get("대표자"), data.get("사업자등록번호"),
-            data.get("통신판매업신고번호"), data.get("이메일"), data.get("전화번호"),
-            data.get("주소"), url, int(time.time())
-        ])
-        f.flush()
-        ok += 1
+        # CSV 저장 - 실시간으로 파일에 추가
+        try:
+            with open(args.out, 'a', newline='', encoding='utf-8') as csv_file:
+                writer = csv.writer(csv_file)
+                writer.writerow([
+                    current,
+                    data.get("상호"), data.get("대표자"), data.get("사업자등록번호"),
+                    data.get("통신판매업신고번호"), data.get("이메일"), data.get("전화번호"),
+                    data.get("주소"), url, int(time.time())
+                ])
+            ok += 1
+        except Exception as e:
+            print(f"[{current}] CSV 저장 실패: {e}")
+            skip += 1
 
         # 진행/요약 로그
         processed = current - start_id + 1
@@ -126,7 +130,6 @@ def main():
         current += 1
         time.sleep(random.uniform(args.delay_min, args.delay_max))
 
-    f.close()
     print("[done] completed range.")
 
 if __name__ == "__main__":
